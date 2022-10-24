@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "73525dae-bd3b-4b8f-865a-39b49de184d8"
+				"spark.autotune.trackingId": "61ba6dc5-946c-446c-849a-ca20a099e64c"
 			}
 		},
 		"metadata": {
@@ -83,7 +83,7 @@
 				},
 				"source": [
 					"%%sql\r\n",
-					"USE  <Databasename>"
+					"USE  dataverse_salestrial_someguid"
 				],
 				"execution_count": 1
 			},
