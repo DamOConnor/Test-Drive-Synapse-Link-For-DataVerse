@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "19e69ac7-9a61-4aee-9a18-f30abb3d7440"
+				"spark.autotune.trackingId": "73525dae-bd3b-4b8f-865a-39b49de184d8"
 			}
 		},
 		"metadata": {
@@ -85,7 +85,7 @@
 					"%%sql\r\n",
 					"USE  <Databasename>"
 				],
-				"execution_count": 2
+				"execution_count": 1
 			},
 			{
 				"cell_type": "markdown",
@@ -137,7 +137,7 @@
 					"plt.pie(revenue_data[\"revenue\"], labels = revenue_data.index, autopct = '%1.1f%%', colors = my_colors)\r\n",
 					"plt.show()"
 				],
-				"execution_count": 3
+				"execution_count": null
 			},
 			{
 				"cell_type": "markdown",
@@ -198,7 +198,7 @@
 					"plt.legend()\r\n",
 					"plt.show()"
 				],
-				"execution_count": 4
+				"execution_count": null
 			},
 			{
 				"cell_type": "markdown",
@@ -252,7 +252,7 @@
 					"#Read the Spark Table\r\n",
 					"display(df)"
 				],
-				"execution_count": 5
+				"execution_count": null
 			}
 		]
 	}
