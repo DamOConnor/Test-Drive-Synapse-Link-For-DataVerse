@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "e89013d9-9feb-4069-8ab6-ee992602217f"
+				"spark.autotune.trackingId": "766d8898-96eb-4809-98bb-40dcedd78893"
 			}
 		},
 		"metadata": {
@@ -77,7 +77,7 @@
 					"\r\n",
 					"display(dfAccount)"
 				],
-				"execution_count": 38
+				"execution_count": 45
 			},
 			{
 				"cell_type": "markdown",
@@ -117,7 +117,7 @@
 					"\r\n",
 					"display(dfContact)"
 				],
-				"execution_count": 39
+				"execution_count": 46
 			},
 			{
 				"cell_type": "code",
@@ -137,7 +137,7 @@
 					"\r\n",
 					"display(df.limit(10))"
 				],
-				"execution_count": 40
+				"execution_count": 47
 			},
 			{
 				"cell_type": "code",
@@ -161,7 +161,7 @@
 					"SELECT *\r\n",
 					"FROM account"
 				],
-				"execution_count": 41
+				"execution_count": 48
 			},
 			{
 				"cell_type": "code",
@@ -185,7 +185,7 @@
 					"SELECT *\r\n",
 					"FROM contact"
 				],
-				"execution_count": 42
+				"execution_count": 49
 			},
 			{
 				"cell_type": "code",
@@ -212,7 +212,7 @@
 					"\r\n",
 					"display(dfAccount)"
 				],
-				"execution_count": 43
+				"execution_count": 50
 			},
 			{
 				"cell_type": "code",
@@ -239,7 +239,7 @@
 					"\r\n",
 					"display(dfContact)"
 				],
-				"execution_count": 44
+				"execution_count": 51
 			},
 			{
 				"cell_type": "code",
@@ -255,14 +255,15 @@
 					},
 					"microsoft": {
 						"language": "sparksql"
-					}
+					},
+					"collapsed": false
 				},
 				"source": [
 					"%%sql   \r\n",
 					"SELECT *\r\n",
 					"FROM account"
 				],
-				"execution_count": null
+				"execution_count": 52
 			}
 		]
 	}
