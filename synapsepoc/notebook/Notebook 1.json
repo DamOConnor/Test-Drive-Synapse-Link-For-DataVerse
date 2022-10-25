@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "c29dcf7b-db31-45b0-8e53-4016b93c8296"
+				"spark.autotune.trackingId": "c2a7fed1-b3aa-4e49-a7aa-bc2e4a555f50"
 			}
 		},
 		"metadata": {
@@ -49,6 +49,19 @@
 		},
 		"cells": [
 			{
+				"cell_type": "markdown",
+				"metadata": {
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"## Account"
+				]
+			},
+			{
 				"cell_type": "code",
 				"metadata": {
 					"microsoft": {
@@ -58,13 +71,40 @@
 				},
 				"source": [
 					"%%pyspark\r\n",
-					"df = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/account/2022-10.csv', format='csv')\r\n",
+					"dfAccount = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/account/2022-10.csv', format='csv')\r\n",
 					"\r\n",
-					"df.createOrReplaceTempView(\"tableA\")\r\n",
+					"dfAccount.createOrReplaceTempView(\"account\")\r\n",
 					"\r\n",
-					"display(df)"
+					"display(dfAccount)"
 				],
-				"execution_count": 23
+				"execution_count": null
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					},
+					"microsoft": {
+						"language": "python"
+					},
+					"collapsed": false
+				},
+				"source": [
+					"%%pyspark\r\n",
+					"dfContact = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/contact/2022-10.csv', format='csv')\r\n",
+					"\r\n",
+					"dfContact.createOrReplaceTempView(\"contact\")\r\n",
+					"\r\n",
+					"display(dfContact)"
+				],
+				"execution_count": null
 			},
 			{
 				"cell_type": "code",
@@ -84,7 +124,55 @@
 					"\r\n",
 					"display(df.limit(10))"
 				],
-				"execution_count": 20
+				"execution_count": null
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					},
+					"microsoft": {
+						"language": "sparksql"
+					},
+					"collapsed": false
+				},
+				"source": [
+					"%%sql   \r\n",
+					"SELECT *\r\n",
+					"FROM account"
+				],
+				"execution_count": null
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					},
+					"microsoft": {
+						"language": "sparksql"
+					},
+					"collapsed": false
+				},
+				"source": [
+					"%%sql   \r\n",
+					"SELECT *\r\n",
+					"FROM contact"
+				],
+				"execution_count": null
 			},
 			{
 				"cell_type": "code",
