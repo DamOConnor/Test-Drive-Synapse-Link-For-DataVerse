@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "a28b0f31-0055-470a-be5b-7de8a0c2fa80"
+				"spark.autotune.trackingId": "c29dcf7b-db31-45b0-8e53-4016b93c8296"
 			}
 		},
 		"metadata": {
@@ -60,9 +60,11 @@
 					"%%pyspark\r\n",
 					"df = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/account/2022-10.csv', format='csv')\r\n",
 					"\r\n",
+					"df.createOrReplaceTempView(\"tableA\")\r\n",
+					"\r\n",
 					"display(df)"
 				],
-				"execution_count": 21
+				"execution_count": 23
 			},
 			{
 				"cell_type": "code",
