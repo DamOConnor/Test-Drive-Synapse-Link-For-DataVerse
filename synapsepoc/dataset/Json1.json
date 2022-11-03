@@ -11,7 +11,6 @@
 			"location": {
 				"type": "AzureBlobFSLocation",
 				"fileName": "model.json",
-				"folderPath": "manual",
 				"fileSystem": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
 			}
 		},
