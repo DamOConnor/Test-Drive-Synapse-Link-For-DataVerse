@@ -143,6 +143,10 @@
 													"entity": {
 														"value": "'@{item().name}'",
 														"type": "Expression"
+													},
+													"folder": {
+														"value": "'@{pipeline().parameters.folder}'",
+														"type": "Expression"
 													}
 												}
 											},
@@ -164,6 +168,10 @@
 			"container": {
 				"type": "string",
 				"defaultValue": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
+			},
+			"folder": {
+				"type": "string",
+				"defaultValue": "dummy"
 			}
 		},
 		"folder": {
