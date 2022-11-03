@@ -35,10 +35,6 @@
 							"container": {
 								"value": "@pipeline().parameters.container",
 								"type": "Expression"
-							},
-							"folder": {
-								"value": "@pipeline().parameters.folder",
-								"type": "Expression"
 							}
 						}
 					}
@@ -144,10 +140,6 @@
 														"value": "'@{pipeline().parameters.container}'",
 														"type": "Expression"
 													},
-													"folder": {
-														"value": "'@{pipeline().parameters.folder}'",
-														"type": "Expression"
-													},
 													"entity": {
 														"value": "'@{item().name}'",
 														"type": "Expression"
@@ -170,10 +162,8 @@
 		],
 		"parameters": {
 			"container": {
-				"type": "string"
-			},
-			"folder": {
-				"type": "string"
+				"type": "string",
+				"defaultValue": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
 			}
 		},
 		"folder": {
