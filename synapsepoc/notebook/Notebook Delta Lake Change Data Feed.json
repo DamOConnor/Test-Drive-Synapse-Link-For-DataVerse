@@ -1,5 +1,5 @@
 {
-	"name": "Notebook 2",
+	"name": "Notebook Delta Lake Change Data Feed",
 	"properties": {
 		"nbformat": 4,
 		"nbformat_minor": 2,
@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "27c74e10-5354-4f96-998d-0b2c3f317ba0"
+				"spark.autotune.trackingId": "69939556-bcf4-4c06-a7eb-50dcf6b60fc7"
 			}
 		},
 		"metadata": {
@@ -68,7 +68,8 @@
 				"metadata": {
 					"microsoft": {
 						"language": "sparksql"
-					}
+					},
+					"collapsed": false
 				},
 				"source": [
 					"%%sql\r\n",
@@ -87,12 +88,84 @@
 						"transient": {
 							"deleting": false
 						}
+					},
+					"microsoft": {
+						"language": "sparksql"
+					},
+					"collapsed": false
+				},
+				"source": [
+					"%%sql\r\n",
+					"INSERT INTO student VALUES ( 1, 'Bob', 42 )"
+				],
+				"execution_count": 4
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					},
+					"microsoft": {
+						"language": "sparksql"
+					},
+					"collapsed": false
+				},
+				"source": [
+					"%%sql\r\n",
+					"SELECT *\r\n",
+					"FROM student"
+				],
+				"execution_count": 5
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
 					}
 				},
 				"source": [
-					""
+					"# version as ints or longs\r\n",
+					"spark.read.format(\"delta\") \\\r\n",
+					"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+					"  .option(\"startingVersion\", 0) \\\r\n",
+					"  .option(\"endingVersion\", 10) \\\r\n",
+					"  .table(\"student\")\r\n",
+					"\r\n",
+					"# timestamps as formatted timestamp\r\n",
+					"spark.read.format(\"delta\") \\\r\n",
+					"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+					"  .option(\"startingTimestamp\", '2021-04-21 05:45:46') \\\r\n",
+					"  .option(\"endingTimestamp\", '2021-05-21 12:00:00') \\\r\n",
+					"  .table(\"student\")\r\n",
+					"\r\n",
+					"# providing only the startingVersion/timestamp\r\n",
+					"spark.read.format(\"delta\") \\\r\n",
+					"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+					"  .option(\"startingVersion\", 0) \\\r\n",
+					"  .table(\"student\")\r\n",
+					"\r\n",
+					"\r\n",
+					"# path based tables\r\n",
+					"#spark.read.format(\"delta\") \\\r\n",
+					"#  .option(\"readChangeFeed\", \"true\") \\\r\n",
+					"#  .option(\"startingTimestamp\", '2021-04-21 05:45:46') \\\r\n",
+					"#  .load(\"pathToMyDeltaTable\")"
 				],
-				"execution_count": null
+				"execution_count": 7
 			}
 		]
 	}
