@@ -71,7 +71,8 @@
 			"scriptLines": [
 				"parameters{",
 				"     container as string,",
-				"     entity as string",
+				"     entity as string,",
+				"     folder as string",
 				"}",
 				"source(allowSchemaDrift: true,",
 				"     validateSchema: false,",
