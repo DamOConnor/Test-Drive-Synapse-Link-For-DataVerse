@@ -1,0 +1,17 @@
+{
+	"name": "SQL script Dataverse working",
+	"properties": {
+		"content": {
+			"query": "SELECT a.[name] accountidName, c.fullname\nFROM dbo.account a\n    INNER JOIN dbo.contact c ON a.id = c.parentcustomerid\nWHERE a.[name] = 'Northwind Traders';\n\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[account];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[contact];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[lead];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[opportunity];\n\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
