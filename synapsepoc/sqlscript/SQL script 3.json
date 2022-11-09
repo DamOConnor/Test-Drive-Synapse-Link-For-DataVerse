@@ -1,0 +1,17 @@
+{
+	"name": "SQL script 3",
+	"properties": {
+		"content": {
+			"query": "SELECT [fullname]\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[contact_partitioned]",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
