@@ -1,0 +1,60 @@
+{
+	"name": "DataverseToSQL_copy1",
+	"properties": {
+		"description": "Once you have Synapse Link for Dataverse set up with incremental updates, use this template to copy data from ADLS Gen 2 to an Azure SQL Database.",
+		"activities": [
+			{
+				"name": "LookupModelJson",
+				"description": "Read model.json file to retrieve metadata",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": false,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"dataset": {
+						"referenceName": "modelJson",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@pipeline().parameters.container",
+								"type": "Expression"
+							}
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"container": {
+				"type": "string",
+				"defaultValue": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
+			},
+			"folder": {
+				"type": "string",
+				"defaultValue": "dummy"
+			}
+		},
+		"folder": {
+			"name": "DataverseToLakeToSQL"
+		},
+		"annotations": [],
+		"lastPublishTime": "2022-09-21T23:35:44Z"
+	}
+}
