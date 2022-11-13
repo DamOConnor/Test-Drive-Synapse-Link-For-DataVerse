@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "de3cba7e-4866-46c1-bf45-c775305bbb5c"
+				"spark.autotune.trackingId": "56c26183-e298-478d-af2a-3518df9659e8"
 			}
 		},
 		"metadata": {
@@ -82,7 +82,6 @@
 				"source": [
 					"%%sql\r\n",
 					"DESCRIBE dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd.account_partitioned\r\n",
-					"\r\n",
 					""
 				],
 				"execution_count": 11
@@ -126,7 +125,7 @@
 					"spark.sql(\"SHOW TABLES\").show()\r\n",
 					""
 				],
-				"execution_count": 13
+				"execution_count": 16
 			}
 		]
 	}
