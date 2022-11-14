@@ -16,6 +16,15 @@
 		},
 		"keyVaultLinkedservice_properties_typeProperties_baseUrl": {
 			"value": "@{concat('https://',linkedService().keyVaultName,'.vault.azure.net/')}"
+		},
+		"Trigger 1_properties_DataverseToSQL_parameters_container": {
+			"value": "@split(triggerBody().folderPath,'/')[0]"
+		},
+		"Trigger 1_properties_DataverseToSQL_parameters_folder": {
+			"value": "@split(triggerBody().folderPath,'/')[1]"
+		},
+		"Trigger 1_properties_typeProperties_scope": {
+			"value": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink2/providers/Microsoft.Storage/storageAccounts/sl2mhdvq6otyjax6poc"
 		}
 	}
 }
