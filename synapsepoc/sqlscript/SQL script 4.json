@@ -1,0 +1,17 @@
+{
+	"name": "SQL script 4",
+	"properties": {
+		"content": {
+			"query": "--GRANT REFERENCES ON CREDENTIAL::[https://sl2mhdvq6otyjax6poc.dfs.core.windows.net/dataverse-salestrial-unq4d5ae23b915c49e38639ee3d149fd/] TO [srvlessUser];\n\n\n-- Operation GRANT is not allowed for a replicated database.\nGRANT SELECT ON dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd.dbo.account_partitioned TO srvlessUser;\n\nSELECT [name]\nFROM sys.credentials\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
