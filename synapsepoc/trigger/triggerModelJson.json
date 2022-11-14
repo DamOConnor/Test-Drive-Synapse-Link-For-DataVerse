@@ -1,0 +1,29 @@
+{
+	"name": "triggerModelJson",
+	"properties": {
+		"annotations": [],
+		"runtimeState": "Started",
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "DataverseToSQL",
+					"type": "PipelineReference"
+				},
+				"parameters": {
+					"container": "@split(triggerBody().folderPath,'/')[0]",
+					"folder": "@split(triggerBody().folderPath,'/')[1]"
+				}
+			}
+		],
+		"type": "BlobEventsTrigger",
+		"typeProperties": {
+			"blobPathBeginsWith": "/dataverse-salestrial-unq4d5ae23b915c49e38639ee3d149fd/blobs/",
+			"blobPathEndsWith": "/model.json",
+			"ignoreEmptyBlobs": true,
+			"scope": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink2/providers/Microsoft.Storage/storageAccounts/sl2mhdvq6otyjax6poc",
+			"events": [
+				"Microsoft.Storage.BlobCreated"
+			]
+		}
+	}
+}
