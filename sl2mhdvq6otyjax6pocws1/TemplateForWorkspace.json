@@ -1,0 +1,2208 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"workspaceName": {
+			"type": "string",
+			"metadata": "Workspace name",
+			"defaultValue": "sl2mhdvq6otyjax6pocws1"
+		},
+		"AzureDataLakeStorage1_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'AzureDataLakeStorage1'"
+		},
+		"AzureSqlDatabase1_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'AzureSqlDatabase1'"
+		},
+		"AzureDataLakeStorage1_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://fedio4jbnhx6syzepoc.dfs.core.windows.net/"
+		},
+		"keyVaultLinkedservice_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "@{concat('https://',linkedService().keyVaultName,'.vault.azure.net/')}"
+		},
+		"triggerModelJson_properties_DataverseToSQL_parameters_container": {
+			"type": "string",
+			"defaultValue": "@split(triggerBody().folderPath,'/')[0]"
+		},
+		"triggerModelJson_properties_DataverseToSQL_parameters_folder": {
+			"type": "string",
+			"defaultValue": "@split(triggerBody().folderPath,'/')[1]"
+		},
+		"triggerModelJson_properties_typeProperties_scope": {
+			"type": "string",
+			"defaultValue": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink2/providers/Microsoft.Storage/storageAccounts/sl2mhdvq6otyjax6poc"
+		}
+	},
+	"variables": {
+		"workspaceId": "[concat('Microsoft.Synapse/workspaces/', parameters('workspaceName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('workspaceName'), '/DataverseToSQL')]",
+			"type": "Microsoft.Synapse/workspaces/pipelines",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"description": "Once you have Synapse Link for Dataverse set up with incremental updates, use this template to copy data from ADLS Gen 2 to an Azure SQL Database.",
+				"activities": [
+					{
+						"name": "LookupModelJson",
+						"description": "Read model.json file to retrieve metadata",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": false,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "modelJson",
+								"type": "DatasetReference",
+								"parameters": {
+									"container": {
+										"value": "@pipeline().parameters.container",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					},
+					{
+						"name": "ForEachEntity",
+						"description": "Loop for each entity in model.json file.",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "LookupModelJson",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('LookupModelJson').output.firstRow.entities",
+								"type": "Expression"
+							},
+							"batchCount": 4,
+							"activities": [
+								{
+									"name": "CreateTable",
+									"description": "Create or alter table to destination SQL DB",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.0:10:00",
+										"retry": 2,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [
+										{
+											"name": "tablename",
+											"value": "@{item().name}"
+										}
+									],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "NonQuery",
+												"text": {
+													"value": "Declare @attributes nvarchar(max) =replace(replace('@{item().attributes}', '\\',''), 'cdm:traits', 'traits') ;\ndeclare @entity nvarchar(200) = '@{item().name}';\n\ndeclare @metadata table (Name nvarchar(200), datatype NVARCHAR(50), maxLength int, precision int, scale int, datatypeSQL nvarchar(100));\n\ninsert into @metadata\nselect   \n x.Name,  x.dataType,  x.maxLength,  x.precision,  x.scale,  \n case    \n when x.dataType = 'nvarchar' and x.maxLength < 0 then 'nvarchar(max)'  \n when x.datatype = 'nvarchar' and x.maxLength > 0 then 'nvarchar(' + convert(nvarchar(10), x.maxLength) + ')'\n when x.datatype = 'decimal' then 'decimal(' + convert(nvarchar(10), x.precision) + ',' + convert(nvarchar(10), x.scale)+ ')'  \n else x.datatype end as datatypeSQL  \n from ( \n select Name,   \n case datatype     \n when 'guid' then 'UNIQUEIDENTIFIER'    \n when 'string' then 'nvarchar'    \n when 'int64' then 'bigInt'    \n when 'boolean' then 'bit'   \n when 'double' then 'real'    \n else datatype end as dataType,    \n case    when datatype = 'string' and  maxLength > 4000 then -1    \n when datatype = 'string'  then maxLength end as maxLength,   \n case  when datatype = 'decimal' then precision end as precision,   \n case  when datatype = 'decimal' then scale end as scale   \n FROM OPENJSON(@attributes)  WITH (  name nvarchar(200) '$.name',  datatype NVARCHAR(50) '$.dataType' , maxLength int '$.maxLength' ,precision int '$.traits[0].arguments[0].value' ,scale int '$.traits[0].arguments[1].value')  )x ; \n \n \n\nDeclare @CreateTableDDL nvarchar(max) = (SELECT \n'IF OBJECT_ID(''dbo.' + @entity + ''',''U'') IS NULL \ncreate table ' + @entity + '(' + STRING_AGG(CONVERT(NVARCHAR(max), + '[' + name + '] ' +  datatypeSQL) , ',') + ' \n, CONSTRAINT ' + @entity + '_ID PRIMARY KEY CLUSTERED (Id)' + ')' \nfrom @metadata);\n\n execute sp_executesql  @CreateTableDDL;\n\n  -- add Columns\nDeclare @AlterTableAddColumnDDL nvarchar(max) = (SELECT \n'alter table ' + @entity + ' ADD ' + STRING_AGG(CONVERT(NVARCHAR(max), + '[' + name + '] ' +  datatypeSQL), ',')\nfrom @metadata m\nleft join  INFORMATION_SCHEMA.COLUMNS c on \nc.TABLE_NAME = @entity and TABLE_SCHEMA = 'dbo'\nand c.COLUMN_NAME = m.Name\nwhere c.COLUMN_NAME is null);\n\n\nexecute sp_executesql @AlterTableAddColumnDDL;\n--select @AlterTableAddColumnDDL;\n\nDeclare @AlterTableAlterColumnDDL nvarchar(max) = (SELECT \n  STRING_AGG(CONVERT(NVARCHAR(max), + 'alter table ' + @entity + ' ALTER COLUMN ' + '[' + name + '] ' +  datatypeSQL), ';')\nfrom @metadata m\nleft join  INFORMATION_SCHEMA.COLUMNS c on \nc.TABLE_NAME = @entity and TABLE_SCHEMA = 'dbo'\nand c.COLUMN_NAME = name\nwhere c.COLUMN_NAME is not null and (c.Data_type != datatype or c.CHARACTER_MAXIMUM_LENGTH != maxLength or NUMERIC_PRECISION != precision or NUMERIC_SCALE != scale));\n\nexecute sp_executesql @AlterTableAlterColumnDDL;\n--select @AlterTableAlterColumnDDL;\n\nDeclare @CreateLogTableDDL nvarchar(max) =\n'IF OBJECT_ID(''dbo.DeleteLog'',''U'') IS NULL \nCREATE TABLE [dbo].[DeleteLog](\n\t[Id] [bigint] IDENTITY(1,1) NOT NULL,\n\t[EntityName] [nvarchar](64) NOT NULL,\n\t[RecordId] [nvarchar](64) NOT NULL,\n\t[SinkDeleteTime] [datetime] NOT NULL,\n\t[VersionNumber] [bigint] NOT NULL,\nPRIMARY KEY CLUSTERED \n(\n\t[Id] ASC\n)\n) ON [PRIMARY]';\n\nexecute sp_executesql  @CreateLogTableDDL;",
+													"type": "Expression"
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "IfPartitionsExists",
+									"description": "If data partition exists, then copy the data",
+									"type": "IfCondition",
+									"dependsOn": [
+										{
+											"activity": "CreateTable",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"expression": {
+											"value": "@greater(length(item().partitions),0)\n",
+											"type": "Expression"
+										},
+										"ifTrueActivities": [
+											{
+												"name": "DataverseToSQL",
+												"description": "Copy the CDM data to SQL table",
+												"type": "ExecuteDataFlow",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "1.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30,
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [
+													{
+														"name": "tablename",
+														"value": "@{item().name}"
+													}
+												],
+												"typeProperties": {
+													"dataflow": {
+														"referenceName": "DataverseCDMToSQL",
+														"type": "DataFlowReference",
+														"parameters": {
+															"container": {
+																"value": "'@{pipeline().parameters.container}'",
+																"type": "Expression"
+															},
+															"entity": {
+																"value": "'@{item().name}'",
+																"type": "Expression"
+															},
+															"folder": {
+																"value": "'@{pipeline().parameters.folder}'",
+																"type": "Expression"
+															}
+														},
+														"datasetParameters": {
+															"CDMEntity": {},
+															"getMaxVersion": {},
+															"AzureSQLDB": {},
+															"AzureSQLDBDeleteLog": {}
+														}
+													},
+													"staging": {},
+													"compute": {
+														"coreCount": 8,
+														"computeType": "MemoryOptimized"
+													},
+													"traceLevel": "Fine"
+												}
+											}
+										]
+									}
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {},
+					"cancelAfter": {}
+				},
+				"parameters": {
+					"container": {
+						"type": "string",
+						"defaultValue": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
+					},
+					"folder": {
+						"type": "string",
+						"defaultValue": "dummy"
+					}
+				},
+				"folder": {
+					"name": "DataverseToLakeToSQL"
+				},
+				"annotations": [],
+				"lastPublishTime": "2022-09-21T23:35:44Z"
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/datasets/modelJson')]",
+				"[concat(variables('workspaceId'), '/linkedServices/AzureSqlDatabase1')]",
+				"[concat(variables('workspaceId'), '/dataflows/DataverseCDMToSQL')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Json1')]",
+			"type": "Microsoft.Synapse/workspaces/datasets",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "model.json",
+						"fileSystem": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/modelJson')]",
+			"type": "Microsoft.Synapse/workspaces/datasets",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"container": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "model.json",
+						"fileSystem": {
+							"value": "@dataset().container",
+							"type": "Expression"
+						}
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AzureDataLakeStorage1')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('AzureDataLakeStorage1_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('AzureDataLakeStorage1_accountKey')]"
+					}
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AzureSqlDatabase1')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDatabase",
+				"typeProperties": {
+					"connectionString": "[parameters('AzureSqlDatabase1_connectionString')]"
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/keyVaultLinkedservice')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"parameters": {
+					"keyVaultName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureKeyVault",
+				"typeProperties": {
+					"baseUrl": "[parameters('keyVaultLinkedservice_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/triggerModelJson')]",
+			"type": "Microsoft.Synapse/workspaces/triggers",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"runtimeState": "Stopped",
+				"pipelines": [
+					{
+						"pipelineReference": {
+							"referenceName": "DataverseToSQL",
+							"type": "PipelineReference"
+						},
+						"parameters": {
+							"container": "[parameters('triggerModelJson_properties_DataverseToSQL_parameters_container')]",
+							"folder": "[parameters('triggerModelJson_properties_DataverseToSQL_parameters_folder')]"
+						}
+					}
+				],
+				"type": "BlobEventsTrigger",
+				"typeProperties": {
+					"blobPathBeginsWith": "/dataverse-salestrial-unq4d5ae23b915c49e38639ee3d149fd/blobs/",
+					"blobPathEndsWith": "/model.json",
+					"ignoreEmptyBlobs": true,
+					"scope": "[parameters('triggerModelJson_properties_typeProperties_scope')]",
+					"events": [
+						"Microsoft.Storage.BlobCreated"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/pipelines/DataverseToSQL')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/AutoResolveIntegrationRuntime')]",
+			"type": "Microsoft.Synapse/workspaces/integrationRuntimes",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"type": "Managed",
+				"typeProperties": {
+					"computeProperties": {
+						"location": "AutoResolve",
+						"dataFlowProperties": {
+							"computeType": "General",
+							"coreCount": 8,
+							"timeToLive": 0,
+							"cleanup": true
+						},
+						"pipelineExternalComputeScaleProperties": {
+							"timeToLive": 60
+						}
+					}
+				},
+				"managedVirtualNetwork": {
+					"type": "ManagedVirtualNetworkReference",
+					"referenceName": "default"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/managedVirtualNetworks/default')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/DataverseCDMToSQL')]",
+			"type": "Microsoft.Synapse/workspaces/dataflows",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"description": "Data flow which reads CDM entity, transforms the data and move the data to destination SQL DB",
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"linkedService": {
+								"referenceName": "AzureDataLakeStorage1",
+								"type": "LinkedServiceReference"
+							},
+							"name": "CDMEntity"
+						},
+						{
+							"linkedService": {
+								"referenceName": "AzureSqlDatabase1",
+								"type": "LinkedServiceReference"
+							},
+							"name": "getMaxVersion"
+						}
+					],
+					"sinks": [
+						{
+							"linkedService": {
+								"referenceName": "AzureSqlDatabase1",
+								"type": "LinkedServiceReference"
+							},
+							"name": "AzureSQLDB"
+						},
+						{
+							"linkedService": {
+								"referenceName": "AzureSqlDatabase1",
+								"type": "LinkedServiceReference"
+							},
+							"name": "AzureSQLDBDeleteLog"
+						}
+					],
+					"transformations": [
+						{
+							"name": "IdentifyColumns"
+						},
+						{
+							"name": "AlterRow"
+						},
+						{
+							"name": "Rank"
+						},
+						{
+							"name": "Dedup"
+						},
+						{
+							"name": "FilterFolders"
+						},
+						{
+							"name": "FilterDeletedRows"
+						},
+						{
+							"name": "AddEntityName"
+						},
+						{
+							"name": "SelectDeleteLogColumns"
+						},
+						{
+							"name": "RankRowNum"
+						},
+						{
+							"name": "DeDupRowNum"
+						}
+					],
+					"scriptLines": [
+						"parameters{",
+						"     container as string,",
+						"     entity as string,",
+						"     folder as string",
+						"}",
+						"source(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     inferDriftedColumnTypes: true,",
+						"     ignoreNoFilesFound: true,",
+						"     entity: ($entity),",
+						"     format: 'cdm',",
+						"     manifestType: 'model',",
+						"     folderPath: ($folder),",
+						"     fileSystem: ($container),",
+						"     dateFormats: ['MM/dd/yyyy','yyyy-MM-dd'],",
+						"     timestampFormats: ['MM/dd/yyyy hh:mm:ss a','yyyy-MM-dd\\'T\\'HH:mm:ss.SSS\\'Z\\'','yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\'','MM/dd/yyyy HH:mm:ss','yyyy-MM-dd\\'T\\'HH:mm:ss']) ~> CDMEntity",
+						"source(output(",
+						"          maxversion as integer",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     format: 'query',",
+						"     store: 'sqlserver',",
+						"     query: (\"select max(versionnumber) as maxversion from dbo.\" + $entity ),",
+						"     isolationLevel: 'READ_UNCOMMITTED') ~> getMaxVersion",
+						"CDMEntity derive(Id = toString(byName(\"Id\")),",
+						"          versionnumber = toLong(byName(\"versionnumber\")),",
+						"          IsDelete = toBoolean(byName(\"IsDelete\")),",
+						"          SinkModifiedOn = toTimestamp(byName(\"SinkModifiedOn\"))) ~> IdentifyColumns",
+						"FilterFolders alterRow(deleteIf(IsDelete==true()),",
+						"     upsertIf(isNull(IsDelete)||IsDelete==false())) ~> AlterRow",
+						"IdentifyColumns window(over(Id),",
+						"     desc(Id, false),",
+						"     desc(versionnumber, false),",
+						"     desc(SinkModifiedOn, false),",
+						"     {_RowVersion} = denseRank()) ~> Rank",
+						"Rank filter(toLong(byName(\"_RowVersion\"))==1) ~> Dedup",
+						"DeDupRowNum, getMaxVersion join(versionnumber > maxversion,",
+						"     joinType:'left',",
+						"     matchType:'exact',",
+						"     ignoreSpaces: false,",
+						"     broadcast: 'right')~> FilterFolders",
+						"FilterFolders filter(IsDelete==true()) ~> FilterDeletedRows",
+						"FilterDeletedRows derive(EntityName = $entity) ~> AddEntityName",
+						"AddEntityName select(mapColumn(",
+						"          EntityName,",
+						"          RecordId = Id,",
+						"          SinkDeleteTime = SinkModifiedOn,",
+						"          VersionNumber = versionnumber",
+						"     ),",
+						"     skipDuplicateMapInputs: false,",
+						"     skipDuplicateMapOutputs: true) ~> SelectDeleteLogColumns",
+						"Dedup window(over(Id),",
+						"     desc(Id, false),",
+						"     desc(versionnumber, false),",
+						"     desc(SinkModifiedOn, false),",
+						"     {_RowNum} = rowNumber()) ~> RankRowNum",
+						"RankRowNum filter(toLong(byName(\"_RowNum\"))==1) ~> DeDupRowNum",
+						"AlterRow sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     format: 'table',",
+						"     store: 'sqlserver',",
+						"     schemaName: 'dbo',",
+						"     tableName: ($entity),",
+						"     insertable: true,",
+						"     updateable: false,",
+						"     deletable: true,",
+						"     upsertable: true,",
+						"     keys:['id'],",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     errorHandlingOption: 'stopOnFirstError') ~> AzureSQLDB",
+						"SelectDeleteLogColumns sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     format: 'table',",
+						"     store: 'sqlserver',",
+						"     schemaName: 'dbo',",
+						"     tableName: 'DeleteLog',",
+						"     insertable: true,",
+						"     updateable: false,",
+						"     deletable: false,",
+						"     upsertable: false,",
+						"     skipDuplicateMapInputs: true,",
+						"     skipDuplicateMapOutputs: true,",
+						"     errorHandlingOption: 'stopOnFirstError') ~> AzureSQLDBDeleteLog"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/linkedServices/AzureDataLakeStorage1')]",
+				"[concat(variables('workspaceId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/WorkspaceSystemIdentity')]",
+			"type": "Microsoft.Synapse/workspaces/credentials",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"type": "ManagedIdentity",
+				"typeProperties": {}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SQL script 1')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT TOP (100) [Id]\n,[SinkCreatedOn]\n,[SinkModifiedOn]\n,[statecode]\n,[statuscode]\n,[address1_addresstypecode]\n,[address1_shippingmethodcode]\n,[paymenttermscode]\n,[accountcategorycode]\n,[address1_freighttermscode]\n,[accountratingcode]\n,[preferredappointmenttimecode]\n,[accountclassificationcode]\n,[customertypecode]\n,[ownershipcode]\n,[preferredcontactmethodcode]\n,[territorycode]\n,[industrycode]\n,[businesstypecode]\n,[shippingmethodcode]\n,[address2_addresstypecode]\n,[customersizecode]\n,[address2_shippingmethodcode]\n,[preferredappointmentdaycode]\n,[address2_freighttermscode]\n,[msdyn_gdproptout]\n,[donotpostalmail]\n,[donotsendmm]\n,[creditonhold]\n,[donotbulkpostalmail]\n,[isprivate]\n,[donotbulkemail]\n,[donotfax]\n,[donotemail]\n,[marketingonly]\n,[followemail]\n,[merged]\n,[donotphone]\n,[participatesinworkflow]\n,[slaid]\n,[slaid_entitytype]\n,[transactioncurrencyid]\n,[transactioncurrencyid_entitytype]\n,[createdbyexternalparty]\n,[createdbyexternalparty_entitytype]\n,[slainvokedid]\n,[slainvokedid_entitytype]\n,[originatingleadid]\n,[originatingleadid_entitytype]\n,[territoryid]\n,[territoryid_entitytype]\n,[preferredserviceid]\n,[preferredserviceid_entitytype]\n,[primarycontactid]\n,[primarycontactid_entitytype]\n,[parentaccountid]\n,[parentaccountid_entitytype]\n,[msdyn_salesaccelerationinsightid]\n,[msdyn_salesaccelerationinsightid_entitytype]\n,[owningbusinessunit]\n,[owningbusinessunit_entitytype]\n,[modifiedby]\n,[modifiedby_entitytype]\n,[modifiedonbehalfby]\n,[modifiedonbehalfby_entitytype]\n,[owninguser]\n,[owninguser_entitytype]\n,[owningteam]\n,[owningteam_entitytype]\n,[preferredequipmentid]\n,[preferredequipmentid_entitytype]\n,[createdonbehalfby]\n,[createdonbehalfby_entitytype]\n,[masterid]\n,[masterid_entitytype]\n,[modifiedbyexternalparty]\n,[modifiedbyexternalparty_entitytype]\n,[defaultpricelevelid]\n,[defaultpricelevelid_entitytype]\n,[msdyn_accountkpiid]\n,[msdyn_accountkpiid_entitytype]\n,[createdby]\n,[createdby_entitytype]\n,[msdyn_segmentid]\n,[msdyn_segmentid_entitytype]\n,[preferredsystemuserid]\n,[preferredsystemuserid_entitytype]\n,[ownerid]\n,[ownerid_entitytype]\n,[aging90]\n,[aging30]\n,[openrevenue]\n,[aging60_base]\n,[creditlimit]\n,[revenue]\n,[marketcap]\n,[openrevenue_base]\n,[aging60]\n,[creditlimit_base]\n,[revenue_base]\n,[aging90_base]\n,[marketcap_base]\n,[aging30_base]\n,[emailaddress3]\n,[emailaddress2]\n,[emailaddress1]\n,[masteraccountidyominame]\n,[address1_city]\n,[modifiedon]\n,[overriddencreatedon]\n,[websiteurl]\n,[address1_longitude]\n,[createdbyexternalpartyname]\n,[sharesoutstanding]\n,[transactioncurrencyidname]\n,[yominame]\n,[preferredsystemuseridyominame]\n,[opendeals_date]\n,[modifiedbyexternalpartyyominame]\n,[masteraccountidname]\n,[preferredsystemuseridname]\n,[address2_stateorprovince]\n,[address2_country]\n,[address2_line2]\n,[address1_line3]\n,[onholdtime]\n,[owningbusinessunitname]\n,[originatingleadidname]\n,[parentaccountidname]\n,[address1_utcoffset]\n,[numberofemployees]\n,[modifiedbyexternalpartyname]\n,[exchangerate]\n,[address2_county]\n,[telephone3]\n,[address2_city]\n,[address2_latitude]\n,[createdon]\n,[address1_composite]\n,[opendeals_state]\n,[address2_postalcode]\n,[lastusedincampaign]\n,[processid]\n,[owneridyominame]\n,[entityimage_url]\n,[teamsfollowed]\n,[address2_line3]\n,[description]\n,[timezoneruleversionnumber]\n,[address1_county]\n,[createdbyname]\n,[address1_line1]\n,[address2_postofficebox]\n,[address2_telephone1]\n,[address2_telephone2]\n,[address2_telephone3]\n,[originatingleadidyominame]\n,[preferredequipmentidname]\n,[address1_addressid]\n,[traversedpath]\n,[territoryidname]\n,[address1_telephone2]\n,[createdonbehalfbyname]\n,[address2_name]\n,[openrevenue_state]\n,[msdyn_segmentidname]\n,[primarysatoriid]\n,[name]\n,[entityimageid]\n,[timespentbymeonemailandmeetings]\n,[primarytwitterid]\n,[owneridname]\n,[entityimage_timestamp]\n,[createdonbehalfbyyominame]\n,[address2_composite]\n,[address1_country]\n,[address1_stateorprovince]\n,[preferredserviceidname]\n,[modifiedonbehalfbyname]\n,[createdbyexternalpartyyominame]\n,[address2_line1]\n,[address1_telephone1]\n,[primarycontactidname]\n,[address1_telephone3]\n,[address1_postofficebox]\n,[slainvokedidname]\n,[fax]\n,[sic]\n,[address2_utcoffset]\n,[stageid]\n,[accountnumber]\n,[address2_fax]\n,[owneridtype]\n,[address2_longitude]\n,[ftpsiteurl]\n,[address1_primarycontactname]\n,[modifiedbyyominame]\n,[lastonholdtime]\n,[address1_line2]\n,[modifiedonbehalfbyyominame]\n,[openrevenue_date]\n,[address2_upszone]\n,[address1_postalcode]\n,[tickersymbol]\n,[utcconversiontimezonecode]\n,[defaultpricelevelidname]\n,[stockexchange]\n,[importsequencenumber]\n,[msdyn_accountkpiidname]\n,[telephone2]\n,[versionnumber]\n,[accountid]\n,[telephone1]\n,[address1_name]\n,[address1_fax]\n,[address1_latitude]\n,[primarycontactidyominame]\n,[modifiedbyname]\n,[createdbyyominame]\n,[address1_upszone]\n,[msdyn_salesaccelerationinsightidname]\n,[address2_addressid]\n,[slaname]\n,[parentaccountidyominame]\n,[address2_primarycontactname]\n,[opendeals]\n,[IsDelete]\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[account];\n\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[lead];\n\n\n\n\nSELECT l.name, a.name\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[lead] l\n    INNER JOIN [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[account] a ON l.id = a.leadid\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SQL script 2')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT [name], *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[account_partitioned]",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SQL script 3')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT [fullname]\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[contact_partitioned]",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SQL script 4')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "--GRANT REFERENCES ON CREDENTIAL::[https://sl2mhdvq6otyjax6poc.dfs.core.windows.net/dataverse-salestrial-unq4d5ae23b915c49e38639ee3d149fd/] TO [srvlessUser];\n\n\n-- Operation GRANT is not allowed for a replicated database.\nGRANT SELECT ON dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd.dbo.account_partitioned TO srvlessUser;\n\nSELECT [name]\nFROM sys.credentials\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/SQL script Dataverse working')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "SELECT a.[name]\nFROM dbo.account_partitioned a\n\n\nSELECT a.[name] accountidName, c.fullname\nFROM dbo.account_partitioned a\n    INNER JOIN dbo.contact_partitioned c ON a.id = c.parentcustomerid\nWHERE a.[name] = 'Northwind Traders';\n\n\nSELECT a.[name] accountidName, c.fullname\nFROM dbo.account a\n    INNER JOIN dbo.contact c ON a.id = c.parentcustomerid\nWHERE a.[name] = 'Northwind Traders';\n\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[account];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[contact];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[lead];\n\nSELECT TOP 100 *\nFROM [dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd].[dbo].[opportunity];\n\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Getting Started with Delta Lake')]",
+			"type": "Microsoft.Synapse/workspaces/notebooks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"nbformat": 4,
+				"nbformat_minor": 2,
+				"bigDataPool": {
+					"referenceName": "ws1sparkpool1",
+					"type": "BigDataPoolReference"
+				},
+				"sessionProperties": {
+					"driverMemory": "28g",
+					"driverCores": 4,
+					"executorMemory": "28g",
+					"executorCores": 4,
+					"numExecutors": 2,
+					"conf": {
+						"spark.dynamicAllocation.enabled": "false",
+						"spark.dynamicAllocation.minExecutors": "2",
+						"spark.dynamicAllocation.maxExecutors": "2",
+						"spark.autotune.trackingId": "8e9bd4fa-75db-4845-b600-f8b6e44bc3de"
+					}
+				},
+				"metadata": {
+					"saveOutput": true,
+					"enableDebugMode": false,
+					"kernelspec": {
+						"name": "synapse_pyspark",
+						"display_name": "Synapse PySpark"
+					},
+					"language_info": {
+						"name": "python"
+					},
+					"a365ComputeOptions": {
+						"id": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink2/providers/Microsoft.Synapse/workspaces/sl2mhdvq6otyjax6pocws1/bigDataPools/ws1sparkpool1",
+						"name": "ws1sparkpool1",
+						"type": "Spark",
+						"endpoint": "https://sl2mhdvq6otyjax6pocws1.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/ws1sparkpool1",
+						"auth": {
+							"type": "AAD",
+							"authResource": "https://dev.azuresynapse.net"
+						},
+						"sparkVersion": "2.4",
+						"nodeCount": 5,
+						"cores": 4,
+						"memory": 28
+					},
+					"sessionKeepAliveTimeout": 30
+				},
+				"cells": [
+					{
+						"cell_type": "markdown",
+						"source": [
+							"# Hitchhiker's Guide to Delta Lake (Python)\n",
+							"\n",
+							"This tutorial has been adapted for more clarity from its original counterpart [here](https://docs.delta.io/latest/quick-start.html). This notebook helps you quickly explore the main features of [Delta Lake](https://github.com/delta-io/delta). It provides code snippets that show how to read from and write to Delta Lake tables from interactive, batch, and streaming queries.\n",
+							"\n",
+							"Here's what we will cover:\n",
+							"* Create a table\n",
+							"* Understanding meta-data\n",
+							"* Read data\n",
+							"* Update table data\n",
+							"* Overwrite table data\n",
+							"* Conditional update without overwrite\n",
+							"* Read older versions of data using Time Travel\n",
+							"* Write a stream of data to a table\n",
+							"* Read a stream of changes from a table"
+						]
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Configuration\n",
+							"Make sure you modify this as appropriate."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"import random\n",
+							"\n",
+							"session_id = random.randint(0,1000000)\n",
+							"delta_table_path = \"/delta/delta-table-{0}\".format(session_id)\n",
+							"\n",
+							"delta_table_path"
+						],
+						"outputs": [],
+						"execution_count": 1
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Create a table\n",
+							"To create a Delta Lake table, write a DataFrame out in the **delta** format. You can use existing Spark SQL code and change the format from parquet, csv, json, and so on, to delta.\n",
+							"\n",
+							"These operations create a new Delta Lake table using the schema that was inferred from your DataFrame. For the full set of options available when you create a new Delta Lake table, see Create a table and Write to a table (subsequent cells in this notebook)."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"data = spark.range(0,5)\n",
+							"data.show()\n",
+							"data.write.format(\"delta\").save(delta_table_path)"
+						],
+						"outputs": [],
+						"execution_count": 2
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Understanding Meta-data\n",
+							"\n",
+							"In Delta Lake, meta-data is no different from data i.e., it is stored next to the data. Therefore, an interesting side-effect here is that you can peek into meta-data using regular Spark APIs. "
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"[log_line.value for log_line in spark.read.text(delta_table_path + \"/_delta_log/\").collect()]"
+						],
+						"outputs": [],
+						"execution_count": 3
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Read data\n",
+							"\n",
+							"You read data in your Delta Lake table by specifying the path to the files."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"df = spark.read.format(\"delta\").load(delta_table_path)\n",
+							"df.show()"
+						],
+						"outputs": [],
+						"execution_count": 4
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Update table data\n",
+							"\n",
+							"Delta Lake supports several operations to modify tables using standard DataFrame APIs. This example runs a batch job to overwrite the data in the table.\n",
+							""
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"data = spark.range(5,10)\n",
+							"data.write.format(\"delta\").mode(\"overwrite\").save(delta_table_path)\n",
+							"df.show()"
+						],
+						"outputs": [],
+						"execution_count": 5
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"When you now inspect the meta-data, what you will notice is that the original data is over-written. Well, not in a true sense but appropriate entries are added to Delta's transaction log so it can provide an \"illusion\" that the original data was deleted. We can verify this by re-inspecting the meta-data. You will see several entries indicating reference removal to the original data."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"[log_line.value for log_line in spark.read.text(delta_table_path + \"/_delta_log/\").collect()]"
+						],
+						"outputs": [],
+						"execution_count": 6
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Save as catalog tables\n",
+							"\n",
+							"Delta Lake can write to managed or external catalog tables."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# Write data to a new managed catalog table.\n",
+							"data.write.format(\"delta\").saveAsTable(\"ManagedDeltaTable\")"
+						],
+						"outputs": [],
+						"execution_count": 7
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# Define an external catalog table that points to the existing Delta Lake data in storage.\n",
+							"spark.sql(\"CREATE TABLE ExternalDeltaTable USING DELTA LOCATION '{0}'\".format(delta_table_path))"
+						],
+						"outputs": [],
+						"execution_count": 8
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# List the 2 new tables.\n",
+							"spark.sql(\"SHOW TABLES\").show()\n",
+							"\n",
+							"# Explore their properties.\n",
+							"spark.sql(\"DESCRIBE EXTENDED ManagedDeltaTable\").show(truncate=False)\n",
+							"spark.sql(\"DESCRIBE EXTENDED ExternalDeltaTable\").show(truncate=False)"
+						],
+						"outputs": [],
+						"execution_count": 9
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Conditional update without overwrite\n",
+							"\n",
+							"Delta Lake provides programmatic APIs to conditional update, delete, and merge (upsert) data into tables. For more information on these operations, see [Table Deletes, Updates, and Merges](https://docs.delta.io/latest/delta-update.html)."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"from delta.tables import *\n",
+							"from pyspark.sql.functions import *\n",
+							"\n",
+							"delta_table = DeltaTable.forPath(spark, delta_table_path)"
+						],
+						"outputs": [],
+						"execution_count": 10
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# Update every even value by adding 100 to it\n",
+							"delta_table.update(\n",
+							"  condition = expr(\"id % 2 == 0\"),\n",
+							"  set = { \"id\": expr(\"id + 100\") })\n",
+							"delta_table.toDF().show()"
+						],
+						"outputs": [],
+						"execution_count": 11
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# Delete every even value\n",
+							"delta_table.delete(\"id % 2 == 0\")\n",
+							"delta_table.toDF().show()"
+						],
+						"outputs": [],
+						"execution_count": 12
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"# Upsert (merge) new data\n",
+							"new_data = spark.range(0,20).alias(\"newData\")\n",
+							"\n",
+							"delta_table.alias(\"oldData\")\\\n",
+							"    .merge(new_data.alias(\"newData\"), \"oldData.id = newData.id\")\\\n",
+							"    .whenMatchedUpdate(set = { \"id\": lit(\"-1\")})\\\n",
+							"    .whenNotMatchedInsert(values = { \"id\": col(\"newData.id\") })\\\n",
+							"    .execute()\n",
+							"\n",
+							"delta_table.toDF().show(100)"
+						],
+						"outputs": [],
+						"execution_count": 13
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## History\n",
+							"Delta's most powerful feature is the ability to allow looking into history i.e., the changes that were made to the underlying Delta Table. The cell below shows how simple it is to inspect the history."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"delta_table.history().show(20, 1000, False)"
+						],
+						"outputs": [],
+						"execution_count": 14
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Read older versions of data using Time Travel\n",
+							"\n",
+							"You can query previous snapshots of your Delta Lake table by using a feature called Time Travel. If you want to access the data that you overwrote, you can query a snapshot of the table before you overwrote the first set of data using the versionAsOf option.\n",
+							"\n",
+							"Once you run the cell below, you should see the first set of data, from before you overwrote it. Time Travel is an extremely powerful feature that takes advantage of the power of the Delta Lake transaction log to access data that is no longer in the table. Removing the version 0 option (or specifying version 1) would let you see the newer data again. For more information, see [Query an older snapshot of a table (time travel)](https://docs.delta.io/latest/delta-batch.html#deltatimetravel)."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"df = spark.read.format(\"delta\").option(\"versionAsOf\", 0).load(delta_table_path)\n",
+							"df.show()"
+						],
+						"outputs": [],
+						"execution_count": 15
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Write a stream of data to a table\n",
+							"\n",
+							"You can also write to a Delta Lake table using Spark's Structured Streaming. The Delta Lake transaction log guarantees exactly-once processing, even when there are other streams or batch queries running concurrently against the table. By default, streams run in append mode, which adds new records to the table.\n",
+							"\n",
+							"For more information about Delta Lake integration with Structured Streaming, see [Table Streaming Reads and Writes](https://docs.delta.io/latest/delta-streaming.html).\n",
+							"\n",
+							"In the cells below, here's what we are doing:\n",
+							"\n",
+							"1. *Cell 28* Setup a simple Spark Structured Streaming job to generate a sequence and make the job write into our Delta Table\n",
+							"2. *Cell 30* Show the newly appended data\n",
+							"3. *Cell 31* Inspect history\n",
+							"4. *Cell 32* Stop the structured streaming job\n",
+							"5. *Cell 33* Inspect history <-- You'll notice appends have stopped"
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"streaming_df = spark.readStream.format(\"rate\").load()\n",
+							"stream = streaming_df\\\n",
+							"    .selectExpr(\"value as id\")\\\n",
+							"    .writeStream\\\n",
+							"    .format(\"delta\")\\\n",
+							"    .option(\"checkpointLocation\", \"/tmp/checkpoint-{0}\".format(session_id))\\\n",
+							"    .start(delta_table_path)"
+						],
+						"outputs": [],
+						"execution_count": 16
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Read a stream of changes from a table\n",
+							"\n",
+							"While the stream is writing to the Delta Lake table, you can also read from that table as streaming source. For example, you can start another streaming query that prints all the changes made to the Delta Lake table."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"delta_table.toDF().sort(col(\"id\").desc()).show(100)"
+						],
+						"outputs": [],
+						"execution_count": 17
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"delta_table.history().drop(\"userId\", \"userName\", \"job\", \"notebook\", \"clusterId\", \"isolationLevel\", \"isBlindAppend\").show(20, 1000, False)"
+						],
+						"outputs": [],
+						"execution_count": 18
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"stream.stop()"
+						],
+						"outputs": [],
+						"execution_count": 19
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"delta_table.history().drop(\"userId\", \"userName\", \"job\", \"notebook\", \"clusterId\", \"isolationLevel\", \"isBlindAppend\").show(100, 1000, False)"
+						],
+						"outputs": [],
+						"execution_count": 20
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Compaction\n",
+							"\n",
+							"If a Delta Table is growing too large, you can compact it by repartitioning into a smaller number of files.\n",
+							"\n",
+							"The option `dataChange = false` is an optimization that tells Delta Lake to do the repartition without marking the underlying data as \"modified\". This ensures that any other concurrent operations (such as streaming reads/writes) aren't negatively impacted.\n",
+							""
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"partition_count = 2\n",
+							"\n",
+							"spark.read\\\n",
+							"    .format(\"delta\")\\\n",
+							"    .load(delta_table_path)\\\n",
+							"    .repartition(partition_count)\\\n",
+							"    .write.option(\"dataChange\", \"false\")\\\n",
+							"    .format(\"delta\")\\\n",
+							"    .mode(\"overwrite\")\\\n",
+							"    .save(delta_table_path)    "
+						],
+						"outputs": [],
+						"execution_count": 21
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## Convert Parquet to Delta\n",
+							"You can do an in-place conversion from the Parquet format to Delta."
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"parquet_path = \"/parquet/parquet-table-{0}\".format(session_id)\n",
+							"\n",
+							"data = spark.range(0,5)\n",
+							"data.write.parquet(parquet_path)\n",
+							"\n",
+							"# Confirm that the data isn't in the Delta format\n",
+							"DeltaTable.isDeltaTable(spark, parquet_path)"
+						],
+						"outputs": [],
+						"execution_count": 22
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"DeltaTable.convertToDelta(spark, \"parquet.`{0}`\".format(parquet_path))\n",
+							"\n",
+							"# Confirm that the converted data is now in the Delta format\n",
+							"DeltaTable.isDeltaTable(spark, parquet_path)"
+						],
+						"outputs": [],
+						"execution_count": 23
+					},
+					{
+						"cell_type": "markdown",
+						"source": [
+							"## SQL Support\n",
+							"Delta supports table utility commands through SQL.  You can use SQL to:\n",
+							"* Get a DeltaTable's history\n",
+							"* Vacuum a DeltaTable\n",
+							"* Convert a Parquet file to Delta\n",
+							""
+						]
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"spark.sql(\"DESCRIBE HISTORY delta.`{0}`\".format(delta_table_path)).show()"
+						],
+						"outputs": [],
+						"execution_count": 24
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"spark.sql(\"VACUUM delta.`{0}`\".format(delta_table_path)).show()"
+						],
+						"outputs": [],
+						"execution_count": 25
+					},
+					{
+						"cell_type": "code",
+						"source": [
+							"parquet_id = random.randint(0,1000)\n",
+							"parquet_path = \"/parquet/parquet-table-{0}-{1}\".format(session_id, parquet_path)\n",
+							"\n",
+							"data = spark.range(0,5)\n",
+							"data.write.parquet(parquet_path)\n",
+							"\n",
+							"# Confirm that the data isn't in the Delta format\n",
+							"DeltaTable.isDeltaTable(spark, parquet_path)\n",
+							"\n",
+							"# Use SQL to convert the parquet table to Delta\n",
+							"spark.sql(\"CONVERT TO DELTA parquet.`{0}`\".format(parquet_path))\n",
+							"\n",
+							"DeltaTable.isDeltaTable(spark, parquet_path)"
+						],
+						"outputs": [],
+						"execution_count": 26
+					}
+				]
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Notebook 1')]",
+			"type": "Microsoft.Synapse/workspaces/notebooks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"nbformat": 4,
+				"nbformat_minor": 2,
+				"bigDataPool": {
+					"referenceName": "ws1sparkpool1",
+					"type": "BigDataPoolReference"
+				},
+				"sessionProperties": {
+					"driverMemory": "28g",
+					"driverCores": 4,
+					"executorMemory": "28g",
+					"executorCores": 4,
+					"numExecutors": 2,
+					"conf": {
+						"spark.dynamicAllocation.enabled": "false",
+						"spark.dynamicAllocation.minExecutors": "2",
+						"spark.dynamicAllocation.maxExecutors": "2",
+						"spark.autotune.trackingId": "766d8898-96eb-4809-98bb-40dcedd78893"
+					}
+				},
+				"metadata": {
+					"saveOutput": true,
+					"enableDebugMode": false,
+					"kernelspec": {
+						"name": "synapse_pyspark",
+						"display_name": "Synapse PySpark"
+					},
+					"language_info": {
+						"name": "python"
+					},
+					"a365ComputeOptions": {
+						"id": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink/providers/Microsoft.Synapse/workspaces/fedio4jbnhx6syzepocws1/bigDataPools/ws1sparkpool1",
+						"name": "ws1sparkpool1",
+						"type": "Spark",
+						"endpoint": "https://fedio4jbnhx6syzepocws1.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/ws1sparkpool1",
+						"auth": {
+							"type": "AAD",
+							"authResource": "https://dev.azuresynapse.net"
+						},
+						"sparkVersion": "2.4",
+						"nodeCount": 5,
+						"cores": 4,
+						"memory": 28
+					},
+					"sessionKeepAliveTimeout": 30
+				},
+				"cells": [
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"## Account"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"microsoft": {
+								"language": "python"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"dfAccount = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/account/2022-10.csv', format='csv')\r\n",
+							"\r\n",
+							"dfAccount.createOrReplaceTempView(\"account\")\r\n",
+							"\r\n",
+							"display(dfAccount)"
+						],
+						"outputs": [],
+						"execution_count": 45
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"## Contact"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"dfContact = spark.read.load('abfss://dataverse-salestrial-unqc4572a290065487d83bd8f5f19484@fedio4jbnhx6syzepoc.dfs.core.windows.net/contact/2022-10.csv', format='csv')\r\n",
+							"\r\n",
+							"dfContact.createOrReplaceTempView(\"contact\")\r\n",
+							"\r\n",
+							"display(dfContact)"
+						],
+						"outputs": [],
+						"execution_count": 46
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"collapsed": false
+						},
+						"source": [
+							"\r\n",
+							"display(df.limit(10))"
+						],
+						"outputs": [],
+						"execution_count": 47
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql   \r\n",
+							"SELECT *\r\n",
+							"FROM account"
+						],
+						"outputs": [],
+						"execution_count": 48
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql   \r\n",
+							"SELECT *\r\n",
+							"FROM contact"
+						],
+						"outputs": [],
+						"execution_count": 49
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"dfAccount = spark.sql(\"SELECT * FROM `dataverse_salestrial_unqc4572a290065487d83bd8f5f19484`.`account`\")\r\n",
+							"\r\n",
+							"dfAccount.createOrReplaceTempView(\"account\")\r\n",
+							"\r\n",
+							"display(dfAccount)"
+						],
+						"outputs": [],
+						"execution_count": 50
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"dfContact = spark.sql(\"SELECT * FROM `dataverse_salestrial_unqc4572a290065487d83bd8f5f19484`.`contact`\")\r\n",
+							"\r\n",
+							"dfContact.createOrReplaceTempView(\"contact\")\r\n",
+							"\r\n",
+							"display(dfContact)"
+						],
+						"outputs": [],
+						"execution_count": 51
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql   \r\n",
+							"SELECT *\r\n",
+							"FROM account"
+						],
+						"outputs": [],
+						"execution_count": 52
+					}
+				]
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Notebook 2')]",
+			"type": "Microsoft.Synapse/workspaces/notebooks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"nbformat": 4,
+				"nbformat_minor": 2,
+				"bigDataPool": {
+					"referenceName": "ws1sparkpool1",
+					"type": "BigDataPoolReference"
+				},
+				"sessionProperties": {
+					"driverMemory": "28g",
+					"driverCores": 4,
+					"executorMemory": "28g",
+					"executorCores": 4,
+					"numExecutors": 2,
+					"conf": {
+						"spark.dynamicAllocation.enabled": "false",
+						"spark.dynamicAllocation.minExecutors": "2",
+						"spark.dynamicAllocation.maxExecutors": "2",
+						"spark.autotune.trackingId": "56c26183-e298-478d-af2a-3518df9659e8"
+					}
+				},
+				"metadata": {
+					"saveOutput": true,
+					"enableDebugMode": false,
+					"kernelspec": {
+						"name": "synapse_pyspark",
+						"display_name": "Synapse PySpark"
+					},
+					"language_info": {
+						"name": "python"
+					},
+					"a365ComputeOptions": {
+						"id": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink2/providers/Microsoft.Synapse/workspaces/sl2mhdvq6otyjax6pocws1/bigDataPools/ws1sparkpool1",
+						"name": "ws1sparkpool1",
+						"type": "Spark",
+						"endpoint": "https://sl2mhdvq6otyjax6pocws1.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/ws1sparkpool1",
+						"auth": {
+							"type": "AAD",
+							"authResource": "https://dev.azuresynapse.net"
+						},
+						"sparkVersion": "2.4",
+						"nodeCount": 5,
+						"cores": 4,
+						"memory": 28
+					},
+					"sessionKeepAliveTimeout": 30
+				},
+				"cells": [
+					{
+						"cell_type": "code",
+						"metadata": {
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"SELECT * FROM dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd.account_partitioned"
+						],
+						"outputs": [],
+						"execution_count": 2
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"DESCRIBE dataverse_salestrial_unq4d5ae23b915c49e38639ee3d149fd.account_partitioned\r\n",
+							""
+						],
+						"outputs": [],
+						"execution_count": 11
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							}
+						},
+						"source": [
+							"%%sql\r\n",
+							"CREATE USER test"
+						],
+						"outputs": [],
+						"execution_count": 12
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"spark.sql(\"SHOW TABLES\").show()\r\n",
+							""
+						],
+						"outputs": [],
+						"execution_count": 16
+					}
+				]
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Notebook Delta Lake Change Data Feed')]",
+			"type": "Microsoft.Synapse/workspaces/notebooks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"nbformat": 4,
+				"nbformat_minor": 2,
+				"bigDataPool": {
+					"referenceName": "ws1sparkpool1",
+					"type": "BigDataPoolReference"
+				},
+				"sessionProperties": {
+					"driverMemory": "28g",
+					"driverCores": 4,
+					"executorMemory": "28g",
+					"executorCores": 4,
+					"numExecutors": 2,
+					"conf": {
+						"spark.dynamicAllocation.enabled": "false",
+						"spark.dynamicAllocation.minExecutors": "2",
+						"spark.dynamicAllocation.maxExecutors": "2",
+						"spark.autotune.trackingId": "94982673-47f2-40d3-bfdf-773db37a82ea"
+					}
+				},
+				"metadata": {
+					"saveOutput": true,
+					"enableDebugMode": false,
+					"kernelspec": {
+						"name": "synapse_pyspark",
+						"display_name": "Synapse PySpark"
+					},
+					"language_info": {
+						"name": "python"
+					},
+					"a365ComputeOptions": {
+						"id": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink/providers/Microsoft.Synapse/workspaces/fedio4jbnhx6syzepocws1/bigDataPools/ws1sparkpool1",
+						"name": "ws1sparkpool1",
+						"type": "Spark",
+						"endpoint": "https://fedio4jbnhx6syzepocws1.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/ws1sparkpool1",
+						"auth": {
+							"type": "AAD",
+							"authResource": "https://dev.azuresynapse.net"
+						},
+						"sparkVersion": "2.4",
+						"nodeCount": 5,
+						"cores": 4,
+						"memory": 28
+					},
+					"sessionKeepAliveTimeout": 30
+				},
+				"cells": [
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"# Change Data Feed for Delta Lake\r\n",
+							"https://docs.delta.io/2.0.0/delta-change-data-feed.html\r\n",
+							""
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"CREATE DATABASE IF NOT EXISTS deltaTesting"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"USE deltaTesting"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"CREATE TABLE IF NOT EXISTS student (id INT, name STRING, age INT) TBLPROPERTIES (delta.enableChangeDataFeed = true)"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"INSERT INTO student VALUES ( 1, 'Bob', 42 )"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"SELECT *\r\n",
+							"FROM student"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"# version as ints or longs\r\n",
+							"df1 = spark.read.format(\"delta\") \\\r\n",
+							"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+							"  .option(\"startingVersion\", 0) \\\r\n",
+							"  .option(\"endingVersion\", 10) \\\r\n",
+							"  .table(\"student\")\r\n",
+							"\r\n",
+							"df1.show()\r\n",
+							"\r\n",
+							"# timestamps as formatted timestamp\r\n",
+							"df2 = spark.read.format(\"delta\") \\\r\n",
+							"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+							"  .option(\"startingTimestamp\", '2022-11-03 12:00:00') \\\r\n",
+							"  .option(\"endingTimestamp\", '2022-11-03 13:00:00') \\\r\n",
+							"  .table(\"student\")\r\n",
+							"\r\n",
+							"df2.show()\r\n",
+							"\r\n",
+							"# providing only the startingVersion/timestamp\r\n",
+							"df3 = spark.read.format(\"delta\") \\\r\n",
+							"  .option(\"readChangeFeed\", \"true\") \\\r\n",
+							"  .option(\"startingVersion\", 0) \\\r\n",
+							"  .table(\"student\")\r\n",
+							"\r\n",
+							"df3.show()\r\n",
+							"\r\n",
+							"# path based tables\r\n",
+							"#spark.read.format(\"delta\") \\\r\n",
+							"#  .option(\"readChangeFeed\", \"true\") \\\r\n",
+							"#  .option(\"startingTimestamp\", '2021-04-21 05:45:46') \\\r\n",
+							"#  .load(\"pathToMyDeltaTable\")"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"## Cleanup"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"DROP TABLE IF EXISTS student "
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"DROP DATABASE IF EXISTS deltaTesting"
+						],
+						"outputs": [],
+						"execution_count": null
+					}
+				]
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/Revenue Summary')]",
+			"type": "Microsoft.Synapse/workspaces/notebooks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"nbformat": 4,
+				"nbformat_minor": 2,
+				"bigDataPool": {
+					"referenceName": "ws1sparkpool1",
+					"type": "BigDataPoolReference"
+				},
+				"sessionProperties": {
+					"driverMemory": "28g",
+					"driverCores": 4,
+					"executorMemory": "28g",
+					"executorCores": 4,
+					"numExecutors": 2,
+					"conf": {
+						"spark.dynamicAllocation.enabled": "false",
+						"spark.dynamicAllocation.minExecutors": "2",
+						"spark.dynamicAllocation.maxExecutors": "2",
+						"spark.autotune.trackingId": "61ba6dc5-946c-446c-849a-ca20a099e64c"
+					}
+				},
+				"metadata": {
+					"saveOutput": true,
+					"enableDebugMode": false,
+					"kernelspec": {
+						"name": "synapse_pyspark",
+						"display_name": "Synapse PySpark"
+					},
+					"language_info": {
+						"name": "python"
+					},
+					"a365ComputeOptions": {
+						"id": "/subscriptions/4e9c0cc1-30e2-4c13-9e99-416611832cdb/resourceGroups/rg_synapselink13/providers/Microsoft.Synapse/workspaces/bobqrrgw4dakpy2qpocws1/bigDataPools/ws1sparkpool1",
+						"name": "ws1sparkpool1",
+						"type": "Spark",
+						"endpoint": "https://bobqrrgw4dakpy2qpocws1.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/ws1sparkpool1",
+						"auth": {
+							"type": "AAD",
+							"authResource": "https://dev.azuresynapse.net"
+						},
+						"sparkVersion": "2.4",
+						"nodeCount": 5,
+						"cores": 4,
+						"memory": 28
+					},
+					"sessionKeepAliveTimeout": 30
+				},
+				"cells": [
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"<h1>Update the Databasename with your Dataverse Databasename.</h1>\r\n",
+							"<img src=\"https://synapse1poc.blob.core.windows.net/dataverselnksynp/Dataverse_DB.gif\" alt=\"Surface Device\" width=\"75%\"/>\r\n",
+							"\r\n",
+							"\t"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "sparksql"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%sql\r\n",
+							"USE  dataverse_salestrial_someguid"
+						],
+						"outputs": [],
+						"execution_count": 1
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"<h1>Identify revenue distribution from leads, opportunities, and accounts with matplotlib.</h1>\r\n",
+							"\r\n",
+							"<img src=\"https://synapse1poc.blob.core.windows.net/dataverselnksynp/RS_loa.png\" alt=\"Surface Device\" width=\"75%\"/>"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							}
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"import pandas as pd\r\n",
+							"import matplotlib.pyplot as plt\r\n",
+							"#Get the Data\r\n",
+							"df = spark.sql(\"\"\"\r\n",
+							"    SELECT revenue, 'account' as source FROM account UNION\r\n",
+							"    SELECT revenue, 'lead' as source FROM lead UNION \r\n",
+							"    SELECT totalamount_base, 'opportunity' as source FROM opportunity\r\n",
+							"\"\"\")\r\n",
+							"#Summarize the Data\r\n",
+							"pdf = df.toPandas()\r\n",
+							"revenue_data = pdf.groupby(\"source\")[[\"revenue\"]].sum()\r\n",
+							"#Format the Plot\r\n",
+							"my_colors = ['green','red', 'yellow']\r\n",
+							"\r\n",
+							"plt.pie(revenue_data[\"revenue\"], labels = revenue_data.index, autopct = '%1.1f%%', colors = my_colors)\r\n",
+							"plt.show()"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"<h1>Display potential revenue from leads and opportunities on a quarterly basis.</h1>\r\n",
+							"\r\n",
+							"<img src=\"https://synapse1poc.blob.core.windows.net/dataverselnksynp/RS_qb.png\" alt=\"Surface Device\" width=\"75%\"/>"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							}
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"import pandas as pd\r\n",
+							"import matplotlib.pyplot as plt\r\n",
+							"#Get the Leads Data\r\n",
+							"df = spark.sql(\"\"\"\r\n",
+							"    SELECT revenue, purchasetimeframe, 'lead' as source FROM lead\r\n",
+							"\"\"\")\r\n",
+							"#Summarize the Data\r\n",
+							"pdf = df.toPandas()\r\n",
+							"data = pdf.groupby(['purchasetimeframe'])[['revenue']].sum()\r\n",
+							"\r\n",
+							"plt.bar(data.index, data[\"revenue\"], color = \"blue\", label = \"Lead\")\r\n",
+							"#Get the Opportunity Data\r\n",
+							"df = spark.sql(\"\"\"\r\n",
+							"    SELECT totalamount_base, purchasetimeframe, 'opportunity' as source FROM opportunity\r\n",
+							"\"\"\")\r\n",
+							"#Summairze the Data\r\n",
+							"pdf = df.toPandas()\r\n",
+							"data = pdf.groupby([\"purchasetimeframe\"])[[\"totalamount_base\"]].sum()\r\n",
+							"\r\n",
+							"plt.bar(data.index, data[\"totalamount_base\"], color = \"orange\", label = \"Opportunity\")\r\n",
+							"#Format the Plot\r\n",
+							"plt.xticks(ticks=[-1, 0, 1, 2, 3, 4], labels=[\"\", \"Q1\", \"Q2\", \"Q3\", \"Q4\", \"This Year\"])\r\n",
+							"plt.yticks(ticks= [0.e+00, 2.e+07, 4.e+07, 6.e+07, 8.e+07, 1.e+08], labels=[\"$0\", \"$20M\", \"$40M\", \"$60M\", \"$80M\", \"$100M\"])\r\n",
+							"plt.legend()\r\n",
+							"plt.show()"
+						],
+						"outputs": [],
+						"execution_count": null
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"<h1>Identify the contact information for each account by joining the Dataverse tables into a new Spark Table</h1>"
+						]
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							},
+							"microsoft": {
+								"language": "python"
+							},
+							"collapsed": false
+						},
+						"source": [
+							"%%pyspark\r\n",
+							"#Join Datasets\r\n",
+							"df = spark.sql(\"\"\"\r\n",
+							" SELECT a.Id AS account_ID, a.name AS account_name, b.fullname AS contact_name, b.emailaddress1 AS contact_email, b.donotemail\r\n",
+							" FROM\r\n",
+							" dataverse_salestrial_unqb032d835bab8474f8813337f0e197.account a\r\n",
+							" INNER JOIN\r\n",
+							" (\r\n",
+							"     SELECT parentcustomerid, fullname, emailaddress1, donotemail\r\n",
+							"     FROM \r\n",
+							"     dataverse_salestrial_unqb032d835bab8474f8813337f0e197.contact\r\n",
+							") b\r\n",
+							"ON a.Id = b.parentcustomerid\r\n",
+							"\"\"\")\r\n",
+							"\r\n",
+							"#Write Joined Dataset to Spark Table\r\n",
+							"df.write.mode(\"overwrite\").saveAsTable(\"default.AccountEmails\")\r\n",
+							"\r\n",
+							"#Read the Spark Table\r\n",
+							"display(df)"
+						],
+						"outputs": [],
+						"execution_count": null
+					}
+				]
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/sl2mhdvq6otyjax6pocws1p1')]",
+			"type": "Microsoft.Synapse/workspaces/sqlPools",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"collation": "SQL_Latin1_General_CP1_CI_AS",
+				"maxSizeBytes": 263882790666240,
+				"annotations": []
+			},
+			"dependsOn": [],
+			"location": "uksouth"
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/ws1sparkpool1')]",
+			"type": "Microsoft.Synapse/workspaces/bigDataPools",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"autoPause": {
+					"enabled": true,
+					"delayInMinutes": 15
+				},
+				"autoScale": {
+					"enabled": true,
+					"maxNodeCount": 25,
+					"minNodeCount": 3
+				},
+				"nodeCount": 5,
+				"nodeSize": "Small",
+				"nodeSizeFamily": "MemoryOptimized",
+				"sparkVersion": "2.4",
+				"isComputeIsolationEnabled": false,
+				"sessionLevelPackagesEnabled": false,
+				"annotations": []
+			},
+			"dependsOn": [],
+			"location": "uksouth"
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/default')]",
+			"type": "Microsoft.Synapse/workspaces/managedVirtualNetworks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {},
+			"dependsOn": []
+		}
+	]
+}
