@@ -152,7 +152,7 @@
 											},
 											"compute": {
 												"coreCount": 8,
-												"computeType": "MemoryOptimized"
+												"computeType": "General"
 											},
 											"traceLevel": "Fine"
 										}
