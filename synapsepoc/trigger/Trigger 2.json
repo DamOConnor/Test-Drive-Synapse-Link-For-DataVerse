@@ -3,7 +3,18 @@
 	"properties": {
 		"annotations": [],
 		"runtimeState": "Started",
-		"pipelines": [],
+		"pipelines": [
+			{
+				"pipelineReference": {
+					"referenceName": "DataverseToSQL",
+					"type": "PipelineReference"
+				},
+				"parameters": {
+					"container": "@split(triggerBody().folderPath,'/')[0]",
+					"folder": "@split(triggerBody().folderPath,'/')[1]"
+				}
+			}
+		],
 		"type": "BlobEventsTrigger",
 		"typeProperties": {
 			"blobPathBeginsWith": "/dataverse-salestrial-unq4d5ae23b915c49e38639ee3d149fd/blobs/",
