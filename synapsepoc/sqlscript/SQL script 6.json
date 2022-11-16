@@ -1,0 +1,17 @@
+{
+	"name": "SQL script 6",
+	"properties": {
+		"content": {
+			"query": "-- This is auto-generated code\nSELECT\n    TOP 100 *\nFROM\n    OPENROWSET(\n        BULK 'https://fedio4jbnhx6syzepoc.dfs.core.windows.net/dataverse-salestrial-unqc4572a290065487d83bd8f5f19484/account/**',\n        FORMAT = 'CSV',\n        PARSER_VERSION = '2.0'\n    ) AS [result]\n\n\nCREATE LOGIN srvlessUser WITH PASSWORD = '81E08E38-3597-4F1C-96B2-A510F7C781Ea';\n\nselect db_name()\nCREATE USER srvlessUser FOR LOGIN srvlessUser;\nGO\n\nGRANT SELECT ON account TO srvlessUser;\n\nALTER ROLE db_datareader ADD MEMBER srvlessUser\n\n\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "dataverse_salestrial_unqc4572a290065487d83bd8f5f19484",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
