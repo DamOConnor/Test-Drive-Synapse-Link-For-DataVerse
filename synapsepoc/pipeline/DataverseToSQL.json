@@ -35,6 +35,10 @@
 							"container": {
 								"value": "@pipeline().parameters.container",
 								"type": "Expression"
+							},
+							"folder": {
+								"value": "@pipeline().parameters.folder",
+								"type": "Expression"
 							}
 						}
 					}
@@ -171,7 +175,7 @@
 			},
 			"folder": {
 				"type": "string",
-				"defaultValue": "dummy"
+				"defaultValue": "dataverse-salestrial-unqc4572a290065487d83bd8f5f19484"
 			}
 		},
 		"folder": {
